@@ -82,4 +82,6 @@ This file contains the TensorFlow.js model definition, training, and prediction 
     -   Display the predicted rating in the `#result` area in a user-friendly format.
 
 ---
-Now generate the complete code for `index.html`, `style.css`, `data.js`, and `script.js` based on these final, detailed specifications for a TensorFlow.js implementation.
+You have the complete code for `index.html`, `style.css`, `data.js`, and `script.js` based on these final, detailed specifications for a TensorFlow.js implementation.and the webpage you created it here: https://dryjins.github.io/RecSys-LLMs/week3/.
+
+Now you need to complete the prompt to create this kind of recommender and change prompt adding the detail explanation as comment for the important code.
