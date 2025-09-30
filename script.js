@@ -12,9 +12,11 @@ const BATCH_SIZE = 128;   // Batch size for training
  */
 window.onload = async function() {
     try {
+        updateStatus('Loading MovieLens dataset...');
+        
         // Step 1: Load and parse the MovieLens dataset
-        await loadData();
-        updateStatus('Data loaded! Populating dropdowns...');
+        const data = await loadData();
+        updateStatus(`Data loaded: ${data.numUsers} users, ${data.numMovies} movies, ${data.ratings.length} ratings`);
         
         // Step 2: Populate the user and movie dropdown menus
         populateUserDropdown();
@@ -29,7 +31,8 @@ window.onload = async function() {
         
     } catch (error) {
         console.error('Initialization error:', error);
-        updateStatus('Error: ' + error.message);
+        updateStatus('Error during initialization: ' + error.message);
+        showResult('Failed to initialize the application. Please refresh the page.', 'error');
     }
 };
 
@@ -147,18 +150,18 @@ async function trainModel() {
         });
         
         // Step 5: Clean up tensors to free memory
-        userTensor.dispose();
-        movieTensor.dispose();
-        ratingTensor.dispose();
+        tf.dispose([userTensor, movieTensor, ratingTensor]);
         
         updateStatus('Model training completed! Ready for predictions.');
         document.getElementById('training-progress').value = 100;
+        showResult('Model is ready! Select a user and movie to predict ratings.', 'success');
         
         console.log('Training completed. Final loss:', history.history.loss[EPOCHS - 1]);
         
     } catch (error) {
         console.error('Training error:', error);
         updateStatus('Training failed: ' + error.message);
+        showResult('Model training failed. Please refresh the page.', 'error');
     }
 }
 
@@ -192,9 +195,7 @@ async function predictRating() {
         const predictedRating = rating[0];
         
         // Clean up tensors
-        userTensor.dispose();
-        movieTensor.dispose();
-        prediction.dispose();
+        tf.dispose([userTensor, movieTensor, prediction]);
         
         // Display the result
         const movieTitle = movies.find(m => m.id === parseInt(movieId)).title;
@@ -222,9 +223,7 @@ function displayPrediction(userId, movieTitle, predictedRating) {
         if (i <= fullStars) {
             starsHTML += '★';
         } else if (i === fullStars + 1 && partialStar > 0) {
-            // Create partial star using CSS gradient
-            const percentage = partialStar * 100;
-            starsHTML += `☆`;
+            starsHTML += '★';
         } else {
             starsHTML += '☆';
         }
@@ -232,7 +231,7 @@ function displayPrediction(userId, movieTitle, predictedRating) {
     
     const resultHTML = `
         <div class="prediction-result">
-            <h3>Prediction Result</h3>
+            <h3>🎯 Prediction Result</h3>
             <p>User <strong>${userId}</strong> would rate:</p>
             <p><strong>"${movieTitle}"</strong></p>
             <div class="stars">${starsHTML}</div>
@@ -252,7 +251,10 @@ function displayPrediction(userId, movieTitle, predictedRating) {
  * Update training status message
  */
 function updateStatus(message) {
-    document.getElementById('status').textContent = message;
+    const statusElement = document.getElementById('status');
+    if (statusElement) {
+        statusElement.textContent = message;
+    }
     console.log('Status:', message);
 }
 
