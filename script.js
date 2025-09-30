@@ -1,37 +1,46 @@
-// Global variables
+// Global variable to store our trained TensorFlow.js model
 let model;
-let isTraining = false;
 
-// Initialize application when window loads
+// Training configuration
+const LATENT_DIM = 10;    // Dimension of latent factors (user and movie embeddings)
+const EPOCHS = 8;         // Number of training epochs
+const BATCH_SIZE = 128;   // Batch size for training
+
+/**
+ * Initialization function that runs when the page loads
+ * Coordinates data loading, UI setup, and model training
+ */
 window.onload = async function() {
     try {
-        // Update status
-        updateStatus('Loading MovieLens data...');
-        
-        // Load data first
+        // Step 1: Load and parse the MovieLens dataset
         await loadData();
+        updateStatus('Data loaded! Populating dropdowns...');
         
-        // Populate dropdowns
+        // Step 2: Populate the user and movie dropdown menus
         populateUserDropdown();
         populateMovieDropdown();
         
-        // Update status and start training
-        updateStatus('Data loaded. Training model...');
+        // Step 3: Enable predict button and update status
+        document.getElementById('predict-btn').disabled = false;
+        updateStatus('Starting model training... This may take a few moments.');
         
-        // Train the model
+        // Step 4: Train the matrix factorization model
         await trainModel();
         
     } catch (error) {
         console.error('Initialization error:', error);
-        updateStatus('Error initializing application: ' + error.message, true);
+        updateStatus('Error: ' + error.message);
     }
 };
 
+/**
+ * Populate the user dropdown with available user IDs
+ */
 function populateUserDropdown() {
     const userSelect = document.getElementById('user-select');
-    userSelect.innerHTML = '';
+    userSelect.innerHTML = '<option value="">Select a user...</option>';
     
-    // Add users (assuming user IDs are sequential from 1 to numUsers)
+    // Create options for each user (1 to numUsers)
     for (let i = 1; i <= numUsers; i++) {
         const option = document.createElement('option');
         option.value = i;
@@ -40,129 +49,142 @@ function populateUserDropdown() {
     }
 }
 
+/**
+ * Populate the movie dropdown with movie titles
+ */
 function populateMovieDropdown() {
     const movieSelect = document.getElementById('movie-select');
-    movieSelect.innerHTML = '';
+    movieSelect.innerHTML = '<option value="">Select a movie...</option>';
     
-    // Add movies
+    // Create options for each movie
     movies.forEach(movie => {
         const option = document.createElement('option');
         option.value = movie.id;
-        option.textContent = movie.year ? `${movie.title} (${movie.year})` : movie.title;
+        option.textContent = `${movie.id}. ${movie.title}`;
         movieSelect.appendChild(option);
     });
 }
 
-function createModel(numUsers, numMovies, latentDim = 10) {
-    // User input
+/**
+ * Create the Matrix Factorization model architecture
+ * This model learns latent factors for users and movies to predict ratings
+ */
+function createModel() {
+    // Input layers for user and movie IDs
     const userInput = tf.input({shape: [1], name: 'userInput'});
-    
-    // Movie input  
     const movieInput = tf.input({shape: [1], name: 'movieInput'});
     
-    // User embedding
+    // Embedding layers: learn dense vector representations
+    // Each user/movie gets a LATENT_DIM-dimensional vector
     const userEmbedding = tf.layers.embedding({
-        inputDim: numUsers + 1,
-        outputDim: latentDim,
+        inputDim: numUsers + 1,  // +1 because user IDs start at 1
+        outputDim: LATENT_DIM,
         name: 'userEmbedding'
     }).apply(userInput);
     
-    // Movie embedding
     const movieEmbedding = tf.layers.embedding({
-        inputDim: numMovies + 1,
-        outputDim: latentDim, 
+        inputDim: numMovies + 1, // +1 because movie IDs start at 1
+        outputDim: LATENT_DIM,
         name: 'movieEmbedding'
     }).apply(movieInput);
     
-    // Reshape embeddings to flatten them
+    // Reshape embeddings to remove the extra dimension
     const userVector = tf.layers.flatten().apply(userEmbedding);
     const movieVector = tf.layers.flatten().apply(movieEmbedding);
     
     // Dot product of user and movie vectors
-    const dotProduct = tf.layers.dot({axes: 1}).apply([userVector, movieVector]);
+    // This represents the predicted rating as the similarity between user and movie in latent space
+    const dotProduct = tf.layers.dot({axes: -1}).apply([userVector, movieVector]);
     
-    // Reshape to get a single output value
-    const prediction = tf.layers.reshape({targetShape: [1]}).apply(dotProduct);
-    
-    // Create model
+    // Create the model with two inputs and one output
     const model = tf.model({
         inputs: [userInput, movieInput],
-        outputs: prediction
+        outputs: dotProduct
     });
     
+    console.log('Model architecture created');
     return model;
 }
 
+/**
+ * Train the matrix factorization model using the rating data
+ */
 async function trainModel() {
     try {
-        isTraining = true;
-        document.getElementById('predict-btn').disabled = true;
+        updateStatus('Creating model architecture...');
         
-        // Create model
-        model = createModel(numUsers, numMovies, 10);
+        // Step 1: Create the model
+        model = createModel();
         
-        // Compile model
+        // Step 2: Compile the model with optimizer and loss function
         model.compile({
-            optimizer: tf.train.adam(0.001),
-            loss: 'meanSquaredError'
+            optimizer: tf.train.adam(0.001),  // Adam optimizer with learning rate 0.001
+            loss: 'meanSquaredError'          // MSE loss for regression task
         });
         
-        // Prepare training data
-        const userIds = ratings.map(r => r.userId);
-        const movieIds = ratings.map(r => r.movieId);
-        const ratingValues = ratings.map(r => r.rating);
+        updateStatus('Model compiled. Preparing training data...');
         
-        const userTensor = tf.tensor2d(userIds, [userIds.length, 1]);
-        const movieTensor = tf.tensor2d(movieIds, [movieIds.length, 1]);
-        const ratingTensor = tf.tensor2d(ratingValues, [ratingValues.length, 1]);
+        // Step 3: Prepare training data as tensors
+        const userTensor = tf.tensor1d(ratings.map(r => r.userId), 'int32');
+        const movieTensor = tf.tensor1d(ratings.map(r => r.movieId), 'int32');
+        const ratingTensor = tf.tensor1d(ratings.map(r => r.rating));
         
-        // Train model
-        updateStatus('Training model... (This may take a moment)');
+        updateStatus('Starting training...');
         
-        await model.fit([userTensor, movieTensor], ratingTensor, {
-            epochs: 10,
-            batchSize: 64,
-            validationSplit: 0.1,
+        // Step 4: Train the model
+        const history = await model.fit([userTensor, movieTensor], ratingTensor, {
+            epochs: EPOCHS,
+            batchSize: BATCH_SIZE,
+            validationSplit: 0.1,  // Use 10% of data for validation
             callbacks: {
                 onEpochEnd: (epoch, logs) => {
-                    updateStatus(`Training epoch ${epoch + 1}/10 - loss: ${logs.loss.toFixed(4)}`);
+                    // Update progress and status after each epoch
+                    const progress = ((epoch + 1) / EPOCHS) * 100;
+                    document.getElementById('training-progress').value = progress;
+                    updateStatus(`Training epoch ${epoch + 1}/${EPOCHS} - Loss: ${logs.loss.toFixed(4)}`);
                 }
             }
         });
         
-        // Clean up tensors
-        tf.dispose([userTensor, movieTensor, ratingTensor]);
+        // Step 5: Clean up tensors to free memory
+        userTensor.dispose();
+        movieTensor.dispose();
+        ratingTensor.dispose();
         
-        // Update UI
-        updateStatus('Model training completed successfully!');
-        document.getElementById('predict-btn').disabled = false;
-        isTraining = false;
+        updateStatus('Model training completed! Ready for predictions.');
+        document.getElementById('training-progress').value = 100;
+        
+        console.log('Training completed. Final loss:', history.history.loss[EPOCHS - 1]);
         
     } catch (error) {
         console.error('Training error:', error);
-        updateStatus('Error training model: ' + error.message, true);
-        isTraining = false;
+        updateStatus('Training failed: ' + error.message);
     }
 }
 
+/**
+ * Predict rating for selected user and movie using the trained model
+ */
 async function predictRating() {
-    if (isTraining) {
-        updateResult('Model is still training. Please wait...', 'medium');
+    const userId = document.getElementById('user-select').value;
+    const movieId = document.getElementById('movie-select').value;
+    
+    if (!userId || !movieId) {
+        showResult('Please select both a user and a movie.', 'error');
         return;
     }
     
-    const userId = parseInt(document.getElementById('user-select').value);
-    const movieId = parseInt(document.getElementById('movie-select').value);
-    
-    if (!userId || !movieId) {
-        updateResult('Please select both a user and a movie.', 'medium');
+    if (!model) {
+        showResult('Model is not ready yet. Please wait for training to complete.', 'error');
         return;
     }
     
     try {
-        // Create input tensors
-        const userTensor = tf.tensor2d([[userId]]);
-        const movieTensor = tf.tensor2d([[movieId]]);
+        showResult('Making prediction...', 'info');
+        
+        // Create input tensors for the selected user and movie
+        const userTensor = tf.tensor1d([parseInt(userId)], 'int32');
+        const movieTensor = tf.tensor1d([parseInt(movieId)], 'int32');
         
         // Make prediction
         const prediction = model.predict([userTensor, movieTensor]);
@@ -170,37 +192,75 @@ async function predictRating() {
         const predictedRating = rating[0];
         
         // Clean up tensors
-        tf.dispose([userTensor, movieTensor, prediction]);
+        userTensor.dispose();
+        movieTensor.dispose();
+        prediction.dispose();
         
-        // Display result
-        const movie = movies.find(m => m.id === movieId);
-        const movieTitle = movie ? (movie.year ? `${movie.title} (${movie.year})` : movie.title) : `Movie ${movieId}`;
-        
-        let ratingClass = 'medium';
-        if (predictedRating >= 4) ratingClass = 'high';
-        else if (predictedRating <= 2) ratingClass = 'low';
-        
-        updateResult(
-            `Predicted rating for User ${userId} on "${movieTitle}": <strong>${predictedRating.toFixed(2)}/5</strong>`,
-            ratingClass
-        );
+        // Display the result
+        const movieTitle = movies.find(m => m.id === parseInt(movieId)).title;
+        displayPrediction(userId, movieTitle, predictedRating);
         
     } catch (error) {
         console.error('Prediction error:', error);
-        updateResult('Error making prediction: ' + error.message, 'low');
+        showResult('Prediction failed: ' + error.message, 'error');
     }
 }
 
-// UI helper functions
-function updateStatus(message, isError = false) {
-    const statusElement = document.getElementById('status');
-    statusElement.textContent = message;
-    statusElement.style.borderLeftColor = isError ? '#e74c3c' : '#3498db';
-    statusElement.style.background = isError ? '#fdedec' : '#f8f9fa';
+/**
+ * Display the prediction result in a user-friendly format
+ */
+function displayPrediction(userId, movieTitle, predictedRating) {
+    // Clamp rating between 1 and 5 (original rating scale)
+    const clampedRating = Math.max(1, Math.min(5, predictedRating));
+    
+    // Create star rating visualization
+    const fullStars = Math.floor(clampedRating);
+    const partialStar = clampedRating - fullStars;
+    let starsHTML = '';
+    
+    for (let i = 1; i <= 5; i++) {
+        if (i <= fullStars) {
+            starsHTML += '★';
+        } else if (i === fullStars + 1 && partialStar > 0) {
+            // Create partial star using CSS gradient
+            const percentage = partialStar * 100;
+            starsHTML += `☆`;
+        } else {
+            starsHTML += '☆';
+        }
+    }
+    
+    const resultHTML = `
+        <div class="prediction-result">
+            <h3>Prediction Result</h3>
+            <p>User <strong>${userId}</strong> would rate:</p>
+            <p><strong>"${movieTitle}"</strong></p>
+            <div class="stars">${starsHTML}</div>
+            <div class="prediction">
+                ${clampedRating.toFixed(1)} / 5.0
+            </div>
+            <p style="margin-top: 10px; font-size: 0.9em; color: #666;">
+                Based on matrix factorization with ${LATENT_DIM} latent factors
+            </p>
+        </div>
+    `;
+    
+    document.getElementById('result').innerHTML = resultHTML;
 }
 
-function updateResult(message, className = '') {
-    const resultElement = document.getElementById('result');
-    resultElement.innerHTML = message;
-    resultElement.className = `result ${className}`;
+/**
+ * Update training status message
+ */
+function updateStatus(message) {
+    document.getElementById('status').textContent = message;
+    console.log('Status:', message);
+}
+
+/**
+ * Show result message with different types (info, error, success)
+ */
+function showResult(message, type = 'info') {
+    const resultDiv = document.getElementById('result');
+    const color = type === 'error' ? '#f44336' : type === 'success' ? '#4caf50' : '#2196f3';
+    resultDiv.innerHTML = `<div style="color: ${color}; font-weight: bold;">${message}</div>`;
 }
