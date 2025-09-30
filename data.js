@@ -11,7 +11,6 @@ let numMovies = 0;     // Number of unique movies in the dataset
 async function loadData() {
     try {
         console.log('Loading MovieLens 100K dataset...');
-        updateStatus('Loading movie data...');
         
         // Multiple fallback URLs for the MovieLens dataset
         const movieUrls = [
@@ -44,8 +43,6 @@ async function loadData() {
             }
         }
         
-        updateStatus('Loading rating data...');
-        
         // Try multiple URLs for ratings data
         for (const url of ratingUrls) {
             try {
@@ -64,7 +61,6 @@ async function loadData() {
         // If URLs failed, use embedded sample data as fallback
         if (!moviesSuccess || !ratingsSuccess) {
             console.log('Using embedded sample data as fallback...');
-            updateStatus('Using sample data...');
             return loadSampleData();
         }
         
@@ -77,7 +73,6 @@ async function loadData() {
         numMovies = movies.length;
         
         console.log(`Data loaded successfully: ${numUsers} users, ${numMovies} movies, ${ratings.length} ratings`);
-        updateStatus('Data parsed successfully!');
         
         return {
             movies,
@@ -89,7 +84,6 @@ async function loadData() {
     } catch (error) {
         console.error('Error loading data:', error);
         // Fallback to sample data if everything else fails
-        updateStatus('Loading sample data as fallback...');
         return loadSampleData();
     }
 }
@@ -214,17 +208,4 @@ function parseRatingData(text) {
     
     console.log(`Parsed ${ratingData.length} ratings`);
     return ratingData;
-}
-
-/**
- * Helper function to update status (defined here for data.js to use)
- */
-function updateStatus(message) {
-    if (typeof document !== 'undefined') {
-        const statusElement = document.getElementById('status');
-        if (statusElement) {
-            statusElement.textContent = message;
-        }
-    }
-    console.log('Status:', message);
 }
